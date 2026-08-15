@@ -203,6 +203,25 @@ export async function handleIp(request: Request): Promise<Response> {
 }
 
 const TILE_MAX_ZOOM = 18
+const TILE_USER_AGENT = 'devjakob-tools/1.0 (+https://tools.devjakob.com)'
+const TILE_CACHE_TTL = 30 * 24 * 60 * 60
+const TILE_HOSTS = ['tile.openstreetmap.org', 'tile.openstreetmap.de']
+
+async function fetchTile(z: number, x: number, y: number): Promise<Response | null> {
+  for (const host of TILE_HOSTS) {
+    try {
+      const upstream = await fetch(`https://${host}/${z}/${x}/${y}.png`, {
+        headers: { 'user-agent': TILE_USER_AGENT },
+        signal: AbortSignal.timeout(6000),
+      })
+      if (upstream.ok) return upstream
+      if (upstream.status !== 429) return null
+    } catch {
+      // try the next mirror
+    }
+  }
+  return null
+}
 
 export async function handleTile(request: Request): Promise<Response> {
   const limited = rateLimit(clientKey(request, 'tile'), { limit: 200, windowMs: 60_000 })
@@ -228,18 +247,21 @@ export async function handleTile(request: Request): Promise<Response> {
     return error('Invalid tile coordinates')
   }
 
-  const upstream = await fetch(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`, {
-    headers: { 'user-agent': 'devjakob-tools/1.0 (+https://tools.devjakob.com)' },
-    cf: { cacheEverything: true, cacheTtl: 86_400 },
-    signal: AbortSignal.timeout(6000),
-  })
+  const cacheKey = new Request(`https://tile-cache.internal/${z}/${x}/${y}.png`)
+  const cache = caches.default
+  const cached = await cache.match(cacheKey)
+  if (cached) return cached
 
-  if (!upstream.ok) return new Response(null, { status: 502 })
+  const upstream = await fetchTile(z, x, y)
+  if (!upstream) return error('Tile provider is rate limiting us, try again shortly', 429, { retryAfter: 5 })
 
-  return new Response(upstream.body, {
+  const response = new Response(upstream.body, {
     headers: {
       'content-type': 'image/png',
-      'cache-control': 'public, max-age=86400, immutable',
+      'cache-control': `public, max-age=${TILE_CACHE_TTL}, immutable`,
     },
   })
+
+  await cache.put(cacheKey, response.clone())
+  return response
 }

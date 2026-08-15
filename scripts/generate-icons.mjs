@@ -25,6 +25,7 @@ const ICONS = [
   'dice',
   'earth',
   'file-export',
+  'github',
   'global-search',
   'information-circle',
   'key-01',

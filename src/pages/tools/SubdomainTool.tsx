@@ -40,11 +40,17 @@ type ResolvedHost = {
 }
 
 type SortKey = 'name' | 'ip' | 'provider'
+type ScanMode = 'all' | 'dns'
 
 const SORT_OPTIONS = [
   { id: 'name' as const, label: 'Sort: name' },
   { id: 'ip' as const, label: 'Sort: IP' },
   { id: 'provider' as const, label: 'Sort: provider' },
+]
+
+const MODE_OPTIONS = [
+  { id: 'all' as const, label: 'DNS + links' },
+  { id: 'dns' as const, label: 'DNS only' },
 ]
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -71,10 +77,11 @@ export function SubdomainTool() {
   const [host, setHost] = useState('devjakob.com')
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState<SortKey>('name')
+  const [mode, setMode] = useState<ScanMode>('all')
   const [onlyResolved, setOnlyResolved] = useState(false)
 
-  const task = useAsyncTask((target: string) =>
-    apiGet<SubdomainData>('/api/subdomains', { host: target.trim() }),
+  const task = useAsyncTask((target: string, scanMode: ScanMode) =>
+    apiGet<SubdomainData>('/api/subdomains', { host: target.trim(), mode: scanMode }),
   )
   const data = task.data
 
@@ -172,14 +179,25 @@ export function SubdomainTool() {
         <QueryBar
           value={host}
           onChange={setHost}
-          onSubmit={() => void task.run(host)}
+          onSubmit={() => void task.run(host, mode)}
           placeholder="example.com"
           icon="global-search"
           submitLabel="Find"
           loading={task.loading}
           disabled={!host.trim()}
           aria-label="Domain"
-        />
+        >
+          <Dropdown
+            value={mode}
+            onChange={(next) => {
+              setMode(next)
+              if (host.trim()) void task.run(host, next)
+            }}
+            options={MODE_OPTIONS}
+            label="Sources"
+            inline
+          />
+        </QueryBar>
       }
     >
       {task.error ? <Banner tone="error">{task.error}</Banner> : null}

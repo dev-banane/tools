@@ -32,6 +32,26 @@ function normalize(names: Iterable<string>, host: string): string[] {
   return [...out]
 }
 
+async function fetchText(url: string, timeoutMs = 10_000): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { accept: '*/*', 'user-agent': USER_AGENT },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) return null
+    return await res.text()
+  } catch {
+    return null
+  }
+}
+
+function extractHosts(text: string, host: string): string[] {
+  const escaped = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+${escaped}\\b`, 'gi')
+  return text.match(re) ?? []
+}
+
 const SOURCES: Source[] = [
   {
     id: 'crtsh',
@@ -138,6 +158,36 @@ const SOURCES: Source[] = [
       )
     },
   },
+  {
+    id: 'http',
+    name: 'HTTP & sitemap crawl',
+    async fetch(host) {
+      const [home, robots, sitemap] = await Promise.all([
+        fetchText(`https://${host}/`),
+        fetchText(`https://${host}/robots.txt`),
+        fetchText(`https://${host}/sitemap.xml`),
+      ])
+
+      const names: string[] = []
+      for (const body of [home, robots, sitemap]) {
+        if (body) names.push(...extractHosts(body, host))
+      }
+
+      if (robots) {
+        const sitemapUrls = [...robots.matchAll(/^sitemap:\s*(\S+)/gim)]
+          .map((m) => m[1]!)
+          .filter((u) => u !== `https://${host}/sitemap.xml`)
+          .slice(0, 5)
+
+        const extra = await Promise.all(sitemapUrls.map((u) => fetchText(u)))
+        for (const body of extra) {
+          if (body) names.push(...extractHosts(body, host))
+        }
+      }
+
+      return normalize(names, host)
+    },
+  },
 ]
 
 const USER_AGENT = 'devjakob-tools/1.0 (+https://tools.devjakob.com)'
@@ -150,11 +200,14 @@ export async function handleSubdomains(request: Request): Promise<Response> {
   const host = parseHostname(url.searchParams.get('host') ?? '')
   if (!host) return error('Enter a valid hostname')
 
-  const settled = await Promise.allSettled(SOURCES.map((source) => source.fetch(host)))
+  const mode = url.searchParams.get('mode') === 'dns' ? 'dns' : 'all'
+  const activeSources = mode === 'dns' ? SOURCES.filter((source) => source.id !== 'http') : SOURCES
+
+  const settled = await Promise.allSettled(activeSources.map((source) => source.fetch(host)))
 
   const found = new Set<string>()
   const sources: SourceResult[] = settled.map((result, index) => {
-    const source = SOURCES[index]!
+    const source = activeSources[index]!
     if (result.status === 'rejected') {
       const reason = result.reason
       return {
