@@ -29,3 +29,4 @@ Requires Wrangler auth (`npx wrangler login`). Worker name: `devjakob-tools`.
 | `GET /api/ttfb?url=&samples=` | Edge latency samples |
 | `GET /api/security?url=` | Security grade report |
 | `GET /api/subdomains?host=` | CT subdomain discovery |
+| `GET /api/domain?name=&tlds=` | Domain availability across TLDs (RDAP) |

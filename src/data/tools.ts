@@ -9,6 +9,12 @@ export type Tool = {
 
 export const tools: Tool[] = [
   {
+    slug: 'domain-finder',
+    name: 'Domain Finder',
+    description: 'Check name availability across TLDs.',
+    icon: 'earth',
+  },
+  {
     slug: 'subdomain-finder',
     name: 'Subdomain Finder',
     description: 'Every subdomain of a domain.',

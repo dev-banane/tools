@@ -8,6 +8,7 @@ import { HeadersTool } from './pages/tools/HeadersTool'
 import { TtfbTool } from './pages/tools/TtfbTool'
 import { SecurityHeadersTool } from './pages/tools/SecurityHeadersTool'
 import { SubdomainTool } from './pages/tools/SubdomainTool'
+import { DomainFinderTool } from './pages/tools/DomainFinderTool'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<Home />} />
+          <Route path="domain-finder" element={<DomainFinderTool />} />
           <Route path="subdomain-finder" element={<SubdomainTool />} />
           <Route path="dns-checker" element={<DnsCheckerTool />} />
           <Route path="security-headers" element={<SecurityHeadersTool />} />

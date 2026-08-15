@@ -13,6 +13,7 @@ import { CopyButton } from '../../components/ui/Copy'
 import { ExtLink } from '../../components/ui/ExtLink'
 import { Icon } from '../../components/Icon'
 import { copyText } from '../../lib/toast'
+import { SUBDOMAIN_WORDLIST } from '../../data/subdomainWordlist'
 
 const tool = requireTool('subdomain-finder')
 
@@ -87,26 +88,51 @@ export function SubdomainTool() {
 
   const [resolved, setResolved] = useState<Record<string, ResolvedHost>>({})
   const [resolving, setResolving] = useState(false)
+  const [bruteFound, setBruteFound] = useState<string[]>([])
+
+  const bruteCandidates = useMemo(() => {
+    if (!data) return []
+    const known = new Set(data.subdomains)
+    return SUBDOMAIN_WORDLIST.map((word) => `${word}.${data.host}`).filter((h) => !known.has(h))
+  }, [data])
 
   useEffect(() => {
-    const list = data?.subdomains
-    if (!list || list.length === 0) {
+    const known = data?.subdomains ?? []
+    if (!data || (known.length === 0 && bruteCandidates.length === 0)) {
       setResolved({})
+      setBruteFound([])
       setResolving(false)
       return
     }
 
     let cancelled = false
     setResolved({})
+    setBruteFound([])
     setResolving(true)
 
-    const batches = chunk(list.slice(0, MAX_RESOLVE), BATCH_SIZE)
-    let cursor = 0
+    const knownBatches = chunk(known.slice(0, MAX_RESOLVE), BATCH_SIZE)
+    const bruteBatches = chunk(bruteCandidates, BATCH_SIZE)
+    let knownCursor = 0
+    let bruteCursor = 0
+
+    let wildcardIps: string | null = null
+
+    async function probeWildcard() {
+      const probe = `${Math.random().toString(36).slice(2, 12)}-check.${data!.host}`
+      try {
+        const result = await apiGet<{ results: ResolvedHost[] }>('/api/resolve', { hosts: probe })
+        const row = result.results[0]
+        if (row?.status === 'ok') wildcardIps = [...row.ips].sort().join(',')
+      } catch {
+      }
+    }
 
     async function worker() {
       for (;;) {
-        const batch = batches[cursor++]
-        if (!batch || cancelled) return
+        if (cancelled) return
+        const isBrute = knownCursor >= knownBatches.length
+        const batch = isBrute ? bruteBatches[bruteCursor++] : knownBatches[knownCursor++]
+        if (!batch) return
         try {
           const result = await apiGet<{ results: ResolvedHost[] }>('/api/resolve', {
             hosts: batch.join(','),
@@ -117,25 +143,40 @@ export function SubdomainTool() {
             for (const row of result.results) next[row.host] = row
             return next
           })
+          if (isBrute) {
+            const hits = result.results
+              .filter((row) => row.status === 'ok' && [...row.ips].sort().join(',') !== wildcardIps)
+              .map((row) => row.host)
+            if (hits.length) setBruteFound((prev) => [...prev, ...hits])
+          }
         } catch {
         }
       }
     }
 
-    void Promise.all(Array.from({ length: CONCURRENCY }, worker)).then(() => {
+    void probeWildcard().then(() =>
+      Promise.all(Array.from({ length: CONCURRENCY }, worker)),
+    ).then(() => {
       if (!cancelled) setResolving(false)
     })
 
     return () => {
       cancelled = true
     }
-  }, [data])
+  }, [data, bruteCandidates])
+
+  const allNames = useMemo(() => {
+    if (!data) return []
+    const set = new Set(data.subdomains)
+    for (const host of bruteFound) set.add(host)
+    return [...set]
+  }, [data, bruteFound])
 
   const rows = useMemo(() => {
     if (!data) return []
     const needle = filter.trim().toLowerCase()
 
-    const mapped = data.subdomains.map((name) => {
+    const mapped = allNames.map((name) => {
       const entry = resolved[name]
       return {
         name,
@@ -163,12 +204,12 @@ export function SubdomainTool() {
       if (sort === 'provider') return a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name)
       return a.name.localeCompare(b.name)
     })
-  }, [data, resolved, filter, sort, onlyResolved])
+  }, [allNames, resolved, filter, sort, onlyResolved])
 
   const resolvedList = Object.values(resolved)
   const uniqueIps = new Set(resolvedList.flatMap((entry) => entry.ips)).size
   const behindCloudflare = resolvedList.filter((entry) => entry.cloudflare).length
-  const resolveTarget = Math.min(data?.subdomains.length ?? 0, MAX_RESOLVE)
+  const resolveTarget = Math.min(data?.subdomains.length ?? 0, MAX_RESOLVE) + bruteCandidates.length
   const progress = resolveTarget ? Math.round((resolvedList.length / resolveTarget) * 100) : 0
 
   return (
@@ -222,9 +263,9 @@ export function SubdomainTool() {
             }
             value={
               <>
-                {data.count}
+                {allNames.length}
                 <span className="hero__unit">
-                  subdomain{data.count === 1 ? '' : 's'}
+                  subdomain{allNames.length === 1 ? '' : 's'}
                 </span>
               </>
             }
@@ -235,6 +276,9 @@ export function SubdomainTool() {
                 </span>
                 <span className="badge badge--solid num">{uniqueIps} unique IPs</span>
                 <span className="badge badge--solid num">{behindCloudflare} on Cloudflare</span>
+                {bruteFound.length > 0 ? (
+                  <span className="badge badge--solid num">{bruteFound.length} via brute force</span>
+                ) : null}
                 {resolving ? (
                   <span className="badge badge--info num">{progress}% scanned</span>
                 ) : null}
@@ -280,7 +324,6 @@ export function SubdomainTool() {
                   spellCheck={false}
                 />
               </div>
-              <Toggle label="Resolving only" checked={onlyResolved} onChange={setOnlyResolved} />
               <Dropdown
                 value={sort}
                 onChange={setSort}
@@ -288,12 +331,13 @@ export function SubdomainTool() {
                 label="Sort by"
                 auto
               />
+              <Toggle label="Resolving only" checked={onlyResolved} onChange={setOnlyResolved} />
             </div>
 
             {rows.length === 0 ? (
               <Empty
                 icon="search-01"
-                title={data.count === 0 ? 'No subdomains found' : 'Nothing matches'}
+                title={allNames.length === 0 ? 'No subdomains found' : 'Nothing matches'}
               />
             ) : (
               <table className="table">

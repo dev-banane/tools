@@ -1,6 +1,7 @@
 import type { Env } from './env'
 import { error, json } from './lib/http'
 import { handleDns } from './routes/dns'
+import { handleDomain } from './routes/domain'
 import { handleHeaders } from './routes/headers'
 import { handleIp, handleTile } from './routes/ip'
 import { handleResolve } from './routes/resolve'
@@ -76,6 +77,9 @@ export default {
           break
         case '/api/resolve':
           response = await handleResolve(request)
+          break
+        case '/api/domain':
+          response = await handleDomain(request)
           break
         default:
           response = error('Not found', 404)
