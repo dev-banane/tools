@@ -1,0 +1,28 @@
+# Tools by Jakob Pütz
+
+> Free developer tools by Jakob Pütz: DNS, IP, security header, and subdomain
+> checks, plus a random key/passphrase generator. No ads, no sign-up walls.
+
+Built with React + Cloudflare Workers. Source: https://github.com/dev-banane/tools
+
+## Tools
+
+- [Subdomain Finder](https://tools.devjakob.com/subdomain-finder): Every subdomain of a domain via certificate transparency logs.
+- [DNS Checker](https://tools.devjakob.com/dns-checker): DNS records across global resolvers.
+- [Security Headers](https://tools.devjakob.com/security-headers): Grade a site on its response headers.
+- [IP Tracker](https://tools.devjakob.com/ip-tracker): Locate any IP address or hostname.
+- [Random Generator](https://tools.devjakob.com/random): Keys, passwords and passphrases.
+- [Headers & Redirects](https://tools.devjakob.com/headers): Response headers and redirect chains.
+- [Response Time](https://tools.devjakob.com/ttfb): Time to first byte from the edge.
+
+## API
+
+Read-only JSON API behind the same origin, rate-limited per route:
+
+- `GET /api/health`
+- `GET /api/ip?ip=`
+- `GET /api/dns?host=&type=`
+- `GET /api/headers?url=`
+- `GET /api/ttfb?url=&samples=`
+- `GET /api/security?url=`
+- `GET /api/subdomains?host=`
